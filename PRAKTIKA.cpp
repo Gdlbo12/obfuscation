@@ -65,8 +65,18 @@ std::string renameVariables(const std::string& code) {
 }
 
 // Функция для добавления мусорного кода
-std::string addJunkCode() {
-
+std::string addJunkCode(const std::string& code) {
+    std::string result = code;
+    std::string junkCode = "if(true){int " + generateRandomName(8) + " = 0;}\n";
+    
+    // Добавляем мусорный код после каждой строки
+    size_t pos = 0;
+    while ((pos = result.find("\n", pos)) != std::string::npos) {
+        result.insert(pos + 1, junkCode);
+        pos += junkCode.length() + 1;
+    }
+    
+    return result;
 }
 
 // Основная функция для обфускации кода
@@ -81,13 +91,30 @@ std::string obfuscateCode(const std::string& inputCode) {
 }
 
 // Функция для чтения файла
-std::string readFile() {
-
+std::string readFile(const std::string& filename) {
+    std::ifstream file(filename);
+    if (!file.is_open()) {
+        throw std::runtime_error("Не удалось открыть файл: " + filename);
+    }
+    
+    std::string content((std::istreambuf_iterator<char>(file)),
+                        std::istreambuf_iterator<char>());
+    return content;
 }
 
 // Функция для записи в файл
-void writeFile() {
-
+void writeFile(const std::string& filename, const std::string& content) {
+    // Проверяем, существует ли директория
+    std::filesystem::path path(filename);
+    if (path.has_parent_path() && !std::filesystem::exists(path.parent_path())) {
+        throw std::runtime_error("Директория не существует: " + path.parent_path().string());
+    }
+    
+    std::ofstream file(filename);
+    if (!file.is_open()) {
+        throw std::runtime_error("Не удалось создать файл: " + filename);
+    }
+    file << content;
 }
 
 // Функция для проверки и корректировки пути к выходному файлу
