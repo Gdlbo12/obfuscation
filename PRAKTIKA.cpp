@@ -14,8 +14,12 @@ std::string generateRandomName() {
 }
 
 // Функция для шифрования строк с использованием XOR
-std::string encryptString() {
-
+std::string encryptString(const std::string& input, char key) {
+    std::string result;
+    for (char c : input) {
+        result += c ^ key;
+    }
+    return result;
 }
 
 // Функция для переименования переменных в коде
