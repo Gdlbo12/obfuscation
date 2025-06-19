@@ -1,174 +1,163 @@
 ﻿#include <iostream>
+#include <fstream>
+#include <sstream>
 #include <string>
 #include <vector>
-#include <map>
-#include <random>
-#include <algorithm>
-#include <fstream>
-#include <locale>
+#include <regex>
 #include <filesystem>
+#include <unistd.h>
+#include <limits.h>
 
-// Функция для генерации случайных имен переменных
-std::string generateRandomName(int length) {
-    static const std::string chars = "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ";
-    static std::random_device rd;
-    static std::mt19937 gen(rd());
-    static std::uniform_int_distribution<> dis(0, chars.size() - 1);
-    
+#define OBF_KEY 0x5A
+#define OBF_CAST(x) static_cast<unsigned char>(x)
+
+namespace NonsenseSpace {
+    template<typename T>
+    class JunkClass {
+    public:
+        JunkClass(T v) : val(v + 1 - 1) {}
+        operator T() const { return val; }
+    private:
+        T val;
+    };
+}
+#define JUNK_MACRO(x) ((x)+0-0)
+
+std::string decode(const std::vector<unsigned char>& data, char key) {
     std::string result;
-    for (int i = 0; i < length; ++i) {
-        result += chars[dis(gen)];
-    }
+    for (auto c : data) result += c ^ key;
     return result;
 }
 
-// Функция для шифрования строк с использованием XOR
-std::string encryptString(const std::string& input, char key) {
+std::string obfuscate_strings(const std::string& code) {
     std::string result;
-    for (char c : input) {
-        result += c ^ key;
-    }
-    return result;
-}
-
-// Функция для переименования переменных в коде
-std::string renameVariables(const std::string& code) {
-    std::map<std::string, std::string> variableMap;
-    std::string result = code;
-    
-    // Находим все объявления переменных и заменяем их
-    size_t pos = 0;
-    while ((pos = result.find("int ", pos)) != std::string::npos) {
-        size_t end = result.find(";", pos);
-        if (end != std::string::npos) {
-            std::string varDecl = result.substr(pos, end - pos);
-            size_t varStart = varDecl.find_last_of(" ");
-            if (varStart != std::string::npos) {
-                std::string oldName = varDecl.substr(varStart + 1);
-                std::string newName = generateRandomName(8);
-                variableMap[oldName] = newName;
-            }
+    std::regex str_re("\"([^\"]*)\"");
+    std::sregex_iterator it(code.begin(), code.end(), str_re), end;
+    size_t last = 0;
+    for (; it != end; ++it) {
+        result += code.substr(last, it->position() - last);
+        std::string s = (*it)[1];
+        result += "decode({";
+        for (size_t i = 0; i < s.size(); ++i) {
+            result += std::to_string(OBF_CAST(s[i] ^ OBF_KEY));
+            if (i + 1 < s.size()) result += ", ";
         }
-        pos = end;
+        result += "}, OBF_KEY)";
+        last = it->position() + it->length();
     }
-    
-    // Заменяем все вхождения старых имен переменных
-    for (const auto& pair : variableMap) {
-        size_t pos = 0;
-        while ((pos = result.find(pair.first, pos)) != std::string::npos) {
-            result.replace(pos, pair.first.length(), pair.second);
-            pos += pair.second.length();
-        }
-    }
-    
+    result += code.substr(last);
     return result;
 }
 
-// Функция для добавления мусорного кода
-std::string addJunkCode(const std::string& code) {
-    std::string result = code;
-    std::string junkCode = "if(true){int " + generateRandomName(8) + " = 0;}\n";
-    
-    // Добавляем мусорный код после каждой строки
-    size_t pos = 0;
-    while ((pos = result.find("\n", pos)) != std::string::npos) {
-        result.insert(pos + 1, junkCode);
-        pos += junkCode.length() + 1;
-    }
-    
-    return result;
+std::string insert_junk_code() {
+    return R"(
+namespace NonsenseSpace {
+    template<typename T>
+    class JunkClass {
+    public:
+        JunkClass(T v) : val(v + 1 - 1) {}
+        operator T() const { return val; }
+    private:
+        T val;
+    };
+}
+#define JUNK_MACRO(x) ((x)+0-0)
+)";
 }
 
-// Основная функция для обфускации кода
-std::string obfuscateCode(const std::string& inputCode) {
-    std::string obfuscatedCode = inputCode;
-    
-    // Применяем техники обфускации
-    obfuscatedCode = renameVariables(obfuscatedCode);
-    obfuscatedCode = addJunkCode(obfuscatedCode);
-    
-    return obfuscatedCode;
+std::string wrap_main(const std::string& code) {
+    std::regex main_re(R"(int\s+main\s*\()");
+    std::string wrapped = std::regex_replace(code, main_re, "int real_main(");
+    wrapped += R"(
+int main() {
+    for (int i = 0; i < 3; ++i) {
+        NonsenseSpace::JunkClass<int> dummy(i);
+        if (dummy == 2) break;
+    }
+    return real_main();
+}
+)";
+    return wrapped;
 }
 
-// Функция для чтения файла
-std::string readFile(const std::string& filename) {
-    std::ifstream file(filename);
-    if (!file.is_open()) {
-        throw std::runtime_error("Не удалось открыть файл: " + filename);
-    }
-    
-    std::string content((std::istreambuf_iterator<char>(file)),
-                        std::istreambuf_iterator<char>());
-    return content;
-}
-
-// Функция для записи в файл
-void writeFile(const std::string& filename, const std::string& content) {
-    // Проверяем, существует ли директория
-    std::filesystem::path path(filename);
-    if (path.has_parent_path() && !std::filesystem::exists(path.parent_path())) {
-        throw std::runtime_error("Директория не существует: " + path.parent_path().string());
-    }
-    
-    std::ofstream file(filename);
-    if (!file.is_open()) {
-        throw std::runtime_error("Не удалось создать файл: " + filename);
-    }
-    file << content;
-}
-
-// Функция для проверки и корректировки пути к выходному файлу
-std::string prepareOutputPath(const std::string& inputPath, const std::string& outputPath) {
-    std::filesystem::path input(inputPath);
-    std::filesystem::path output(outputPath);
-    
-    // Если выходной путь - это директория
-    if (std::filesystem::is_directory(output)) {
-        // Создаем имя файла на основе входного файла
-        std::string newFilename = "obfuscated_" + input.filename().string();
-        return (output / newFilename).string();
-    }
-    
-    // Если выходной путь не содержит расширение
-    if (!output.has_extension()) {
-        return output.string() + ".cpp";
-    }
-    
-    return output.string();
+std::string remove_comments(const std::string& code) {
+    std::string no_single = std::regex_replace(code, std::regex("//.*"), "");
+    std::string no_comments = std::regex_replace(
+        no_single,
+        std::regex("/\\*[\\s\\S]*?\\*/", std::regex::ECMAScript),
+        ""
+    );
+    return no_comments;
 }
 
 int main() {
-    setlocale(LC_ALL, "Russian");
-    
-    try {
-        std::string inputFilename, outputFilename;
-        
-        std::cout << "Введите путь к исходному файлу: ";
-        std::getline(std::cin, inputFilename);
-        
-        std::cout << "Введите путь для сохранения обфусцированного кода: ";
-        std::getline(std::cin, outputFilename);
-        
-        // Подготавливаем путь к выходному файлу
-        outputFilename = prepareOutputPath(inputFilename, outputFilename);
-        
-        // Читаем исходный код из файла
-        std::string inputCode = readFile(inputFilename);
-        
-        // Обфусцируем код
-        std::string obfuscatedCode = obfuscateCode(inputCode);
-        
-        // Сохраняем результат в файл
-        writeFile(outputFilename, obfuscatedCode);
-        
-        std::cout << "Обфускация успешно завершена!\n";
-        std::cout << "Результат сохранен в файл: " << outputFilename << std::endl;
-        
-    } catch (const std::exception& e) {
-        std::cerr << "Ошибка: " << e.what() << std::endl;
+    std::string input_path;
+    std::cout << "Введите путь к исходному .cpp файлу: ";
+    std::getline(std::cin, input_path);
+
+    std::ifstream fin(input_path);
+    if (!fin) {
+        std::cerr << "Ошибка открытия файла!" << std::endl;
         return 1;
     }
-    
+    std::stringstream buffer;
+    buffer << fin.rdbuf();
+    std::string code = buffer.str();
+    fin.close();
+
+    // Удаляем комментарии
+    code = remove_comments(code);
+
+    // Шифруем строки
+    code = obfuscate_strings(code);
+
+    // Вставляем макросы и функцию decode
+    std::string macros = R"(
+#define OBF_KEY 0x5A
+#define OBF_CAST(x) static_cast<unsigned char>(x)
+#include <vector>
+#include <string>
+std::string decode(const std::vector<unsigned char>& data, char key) {
+    std::string result;
+    for (auto c : data) result += c ^ key;
+    return result;
+}
+)";
+    code = macros + code;
+
+    // Вставляем мусорный код
+    code = insert_junk_code() + code;
+
+    // Оборачиваем main
+    code = wrap_main(code);
+
+    // Генерируем имя файла
+    int n = 1;
+    std::string out_path;
+    while (true) {
+        out_path = "obf" + std::to_string(n) + ".cpp";
+        std::ifstream test(out_path);
+        if (!test) break;
+        n++;
+    }
+
+    // Диагностика
+    char cwd[PATH_MAX];
+    if (getcwd(cwd, sizeof(cwd)) != nullptr) {
+        std::cout << "Текущая рабочая директория: " << cwd << std::endl;
+        std::cout << "Пытаюсь создать файл: " << out_path << std::endl;
+    } else {
+        std::cerr << "Не удалось получить рабочую директорию!" << std::endl;
+    }
+
+    std::ofstream fout(out_path);
+    if (!fout) {
+        std::cerr << "Ошибка создания файла! Проверь права на запись и путь." << std::endl;
+        return 1;
+    }
+    fout << code;
+    fout.close();
+
+    std::cout << "Обфусцированный файл сохранён как " << out_path << std::endl;
     return 0;
 }
-
